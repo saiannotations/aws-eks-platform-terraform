@@ -1,0 +1,61 @@
+# Terraform Apply — runs when code is merged to main.
+#
+# The `production` environment below requires a manual approval in the
+# GitHub repo settings, so no apply ever runs without a human saying go.
+name: Terraform Apply
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - "**.tf"
+      - "**.tfvars"
+      - ".github/workflows/apply.yml"
+
+permissions:
+  id-token: write # needed for OIDC
+  contents: read
+
+jobs:
+  apply:
+    name: apply (${{ matrix.environment }})
+    runs-on: ubuntu-latest
+    environment: production # <-- manual approval gate lives here
+    strategy:
+      fail-fast: false
+      matrix:
+        environment: [dev, staging, prod]
+
+    defaults:
+      run:
+        working-directory: envs/${{ matrix.environment }}
+
+    steps:
+      - name: Check out code
+        uses: actions/checkout@v4
+
+      - name: Assume AWS role via OIDC
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: arn:aws:iam::${{ vars.AWS_ACCOUNT_ID }}:role/eks-platform-github-ci
+          aws-region: us-east-1
+
+      - name: Set up Terraform
+        uses: hashicorp/setup-terraform@v3
+        with:
+          terraform_version: "1.9.8"
+
+      - name: Init
+        run: >
+          terraform init -input=false
+          -backend-config="bucket=eks-platform-tfstate-${{ vars.AWS_ACCOUNT_ID }}"
+          -backend-config="dynamodb_table=eks-platform-tflocks"
+
+      - name: Validate
+        run: terraform validate
+
+      - name: Plan
+        run: terraform plan -input=false -out=tfplan
+
+      - name: Apply
+        run: terraform apply -input=false -auto-approve tfplan

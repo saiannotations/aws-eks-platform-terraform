@@ -1,0 +1,84 @@
+# Terraform Plan — runs on every pull request.
+#
+# Authenticates to AWS with OIDC (short-lived tokens). No static AWS keys
+# are stored in GitHub secrets. The plan is posted as a PR comment so the
+# team reviews the exact infrastructure diff before merging.
+name: Terraform Plan
+
+on:
+  pull_request:
+    paths:
+      - "**.tf"
+      - "**.tfvars"
+      - ".github/workflows/plan.yml"
+
+permissions:
+  id-token: write # needed for OIDC
+  contents: read
+  pull-requests: write # needed to post the plan comment
+
+jobs:
+  plan:
+    name: plan (${{ matrix.environment }})
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        environment: [dev, staging, prod]
+
+    defaults:
+      run:
+        working-directory: envs/${{ matrix.environment }}
+
+    steps:
+      - name: Check out code
+        uses: actions/checkout@v4
+
+      - name: Assume AWS role via OIDC
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: arn:aws:iam::${{ vars.AWS_ACCOUNT_ID }}:role/eks-platform-github-ci
+          aws-region: us-east-1
+
+      - name: Set up Terraform
+        uses: hashicorp/setup-terraform@v3
+        with:
+          terraform_version: "1.9.8"
+
+      - name: Check formatting
+        run: terraform fmt -check -recursive ../../
+
+      - name: Init
+        run: >
+          terraform init -input=false
+          -backend-config="bucket=eks-platform-tfstate-${{ vars.AWS_ACCOUNT_ID }}"
+          -backend-config="dynamodb_table=eks-platform-tflocks"
+
+      - name: Validate
+        run: terraform validate
+
+      - name: Plan
+        id: plan
+        run: terraform plan -input=false -no-color -out=tfplan
+        continue-on-error: true
+
+      - name: Post plan as PR comment
+        uses: actions/github-script@v7
+        env:
+          PLAN_EXIT: ${{ steps.plan.outputs.exitcode }}
+        with:
+          script: |
+            const fs = require('fs');
+            const { execSync } = require('child_process');
+            const plan = execSync('terraform show -no-color tfplan', {
+              cwd: `envs/${{ matrix.environment }}`,
+              maxBuffer: 1024 * 1024,
+            }).toString();
+            const body = `## Terraform plan — \`${{ matrix.environment }}\`\n` +
+              `<details><summary>Show plan</summary>\n\n\`\`\`terraform\n${plan}\n\`\`\`\n</details>`;
+            github.rest.issues.createComment({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              issue_number: context.issue.number,
+              body,
+            });

@@ -11,16 +11,16 @@ module "tagging" {
 }
 
 module "vpc" {
-  source             = "../../modules/vpc"
-  project            = var.project
-  environment        = var.environment
-  cluster_name       = var.cluster_name
-  vpc_cidr           = var.vpc_cidr
-  azs                = var.azs
+  source               = "../../modules/vpc"
+  project              = var.project
+  environment          = var.environment
+  cluster_name         = var.cluster_name
+  vpc_cidr             = var.vpc_cidr
+  azs                  = var.azs
   public_subnet_cidrs  = var.public_subnet_cidrs
   private_subnet_cidrs = var.private_subnet_cidrs
-  single_nat_gateway = false # staging: HA like prod
-  tags               = module.tagging.tags
+  single_nat_gateway   = false # staging: HA like prod
+  tags                 = module.tagging.tags
 }
 
 module "eks" {

@@ -26,10 +26,10 @@ variable "oidc_issuer_url" {
 variable "roles" {
   description = "Map of IRSA role definitions."
   type = map(object({
-    namespace           = string
-    service_account     = string
-    policy_arns         = list(string)
-    description         = optional(string, "")
+    namespace       = string
+    service_account = string
+    policy_arns     = list(string)
+    description     = optional(string, "")
   }))
 }
 
